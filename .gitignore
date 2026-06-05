@@ -1,0 +1,18 @@
+*
+!*.py
+!.gitignore
+!*.pyd
+!*.cpp
+!*.c
+!*.h
+!*.ipynb
+!*.md
+!CMakeLists.txt
+!conda-environment.yml
+!requirements.txt
+!*.yml
+!*.in
+!*.toml
+!*.bat
+# 不忽略子目录
+!*/

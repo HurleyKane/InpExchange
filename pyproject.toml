@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "InpExchange"
+version = "0.1.0"
+description = "Read/write Abaqus .inp with focus on Part blocks"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{name = "Chen mingkai"}]
+dependencies = ["numpy"]
+
+[tool.setuptools]
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["InpExchange*"]

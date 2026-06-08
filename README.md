@@ -13,20 +13,16 @@ InpExchange 是一个用于读取/写入 Abaqus `.inp` 的轻量库。
 在仓库根目录执行：
 
 ```bash
-pip install -e lib/InpExchange
+pip install -e ./
 ```
 
 ## 快速示例
 
 ```python
-from InpExchange import InpModel
+from InpExchange import GmshToAbaqus
 
-m = InpModel.from_file("SciDataLib/inp_reader/Job-1.inp")
-print(m)
-print(m.parts[0])
-
-# parts-only 写回
-m.write_inp("/tmp/job_parts_only.inp")
+gmsh_model = GmshToAbaqus.from_file("gmsh_mesh.inp")
+gmsh_model.app("output_mesh.inp")
 ```
 
 ## 说明

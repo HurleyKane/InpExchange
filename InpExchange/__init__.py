@@ -12,24 +12,10 @@ m.write_inp("Job-1_parts_only.inp")
 ```
 """
 
-from .InpReader import (
-    Assembly,
-    Elset,
-    Element,
-    InpModel,
-    Instance,
-    Nset,
-    Part,
-    Section,
+from .GmshToAbaqus import (
+    GmshToAbaqus,
 )
 
 __all__ = [
-    "Assembly",
-    "Instance",
-    "InpModel",
-    "Part",
-    "Element",
-    "Nset",
-    "Elset",
-    "Section",
+    "GmshToAbaqus"
 ]

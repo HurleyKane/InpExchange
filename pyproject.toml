@@ -17,3 +17,7 @@ package-dir = {"" = "."}
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["InpExchange*"]
+
+# 添加可执行文件
+[project.scripts]
+gmsh_to_abaqus_inp = "bin.gmsh_to_abaqus_inp:main"

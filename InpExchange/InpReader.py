@@ -21,7 +21,28 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import numpy as np
 import io
-1
+
+
+def fmt_float(x: float) -> str:
+    # Abaqus inp 对浮点格式不敏感；用通用格式减少无意义的小数位。
+    try:
+        return f"{float(x):.15g}"
+    except Exception:
+        return str(x)
+
+def write_int_list(f, values: np.ndarray | list[int], *, per_line: int = 16, indent: str = "") -> None:
+    """
+    将一个数组或列表写入文件，每行最多 per_line 个元素，每行开头添加 indent。
+    """
+    arr = values if isinstance(values, list) else values.tolist()
+    if not arr:
+        f.write(f"{indent}\n")
+        return
+    for i in range(0, len(arr), per_line):
+        chunk = arr[i:i + per_line]
+        f.write(indent + ", ".join(str(int(v)) for v in chunk) + "\n")
+
+
 
 class _PushbackLineIter:
     """可回退的行迭代器，用于流式解析关键字块。
@@ -79,51 +100,6 @@ class Element:
 
 
 # ==========================================================
-# Part
-# ==========================================================
-@dataclass
-class Part:
-    name: str
-    nodes: np.ndarray | None = None
-    elements: list[Element] = field(default_factory=list) # 每次创建 Part 对象时，自动调用 list() 创建一个新的空列表作为默认值。
-    nsets: list[Nset] = field(default_factory=list)
-    elsets: list[Elset] = field(default_factory=list)  
-    sections: list[Section] = field(default_factory=list)
-
-    def add_element(self, element: Element):
-        self.elements.append(element)
-    
-    def add_nsets(self, nset: Nset):
-        self.nsets.append(nset)
-    
-    def add_elsets(self, elset: Elset):
-        self.elsets.append(elset)   
-
-    def add_section(self, section: 'Section'):
-        self.sections.append(section)
-
-    @property
-    def node_ids(self):
-        if self.nodes is None:
-            return None
-        return self.nodes[:, 0].astype(int)
-
-    @property
-    def coordinates(self):
-        if self.nodes is None:
-            return None
-        return self.nodes[:, 1:]
-
-    def __repr__(self):
-        n_nodes = 0 if self.nodes is None else len(self.nodes)
-        return (
-            f"Part(name='{self.name}', "
-            f"n_nodes={n_nodes}, "
-            f"n_element_blocks={len(self.elements)})"
-            f""
-        )
-
-# ==========================================================
 # Nset
 # ==========================================================
 @dataclass 
@@ -177,6 +153,27 @@ class Elset:
             return np.arange(start, end + 1, inc, dtype=int)
         return np.array([], dtype=int) if self.element_ids is None else self.element_ids
 
+    def transform_to_nset(self, part: Part):
+        """将elset转换为nset
+        Part: 从part中获取nset需要的node的ids
+        """
+        if part.nodes is None: 
+            raise ValueError("part.nodes is None")
+        elset = self
+        name = elset.elset
+        nset = Nset(nset=name, type="independent")
+
+        temp_set = set()
+        elset_element_ids = elset.element_ids
+        for element_id in elset_element_ids: # type: ignore
+            arg = part.find_element_position(int(element_id))
+            temp_element = part.elements[arg]
+            node_ids = temp_element[int(element_id)]
+            temp_set = temp_set.union(set(node_ids))
+
+        nset.node_ids = np.array(list(temp_set), dtype=int)
+        nset.node_ids.shape
+        return nset
 
 # ==========================================================
 # Section
@@ -215,6 +212,183 @@ class Instance:
             f"Instance(name={self.name!r}, part={self.part!r})"
         )
 
+# ==========================================================
+# Part
+# ==========================================================
+@dataclass
+class Part:
+    name: str
+    nodes: np.ndarray | None = None
+    elements: list[Element] = field(default_factory=list) # 每次创建 Part 对象时，自动调用 list() 创建一个新的空列表作为默认值。
+    nsets: list[Nset] = field(default_factory=list)
+    elsets: list[Elset] = field(default_factory=list)  
+    sections: list[Section] = field(default_factory=list)
+
+    def add_element(self, element: Element):
+        self.elements.append(element)
+    
+    def add_nsets(self, nset: Nset):
+        self.nsets.append(nset)
+    
+    def add_elsets(self, elset: Elset):
+        self.elsets.append(elset)   
+
+    def add_section(self, section: 'Section'):
+        self.sections.append(section)
+
+    @property
+    def node_ids(self):
+        if self.nodes is None:
+            return None
+        return self.nodes[:, 0].astype(int)
+
+    @property
+    def coordinates(self):
+        if self.nodes is None:
+            return None
+        return self.nodes[:, 1:]
+
+    def __repr__(self):
+        n_nodes = 0 if self.nodes is None else len(self.nodes)
+        return (
+            f"Part(name='{self.name}', "
+            f"n_nodes={n_nodes}, "
+            f"n_element_blocks={len(self.elements)})"
+            f""
+        )
+
+    def get_max_nset_node_id(self):
+        # def 找出Nset或者中最大的节点编号
+        if len(self.nsets) > 0:
+            max_node_id = max([max(nset.ids) for nset in self.nsets])
+        else:
+            max_node_id = 0
+        return max_node_id
+
+    def find_element_position(self, element_id: int): 
+        """ 
+        找出element_id对应的element在part.elements中的位置。
+        """
+        for index, element in enumerate(self.elements):
+            try:
+                element[element_id]
+                return index
+            except IndexError:
+                pass
+        raise ValueError("element_id not found")    
+
+    def _write_part(self, f) -> None:
+        part = self
+        f.write(f"*Part, name={part.name}\n")
+
+        # Nodes
+        if part.nodes is not None and len(part.nodes) > 0:
+            f.write("*Node\n")
+            for row in part.nodes:
+                node_id = int(row[0])
+                coords = row[1:]
+                f.write(
+                    str(node_id)
+                    + ", "
+                    + ", ".join(fmt_float(v) for v in coords)
+                    + "\n"
+                )
+
+        # Elements
+        for elem in part.elements:
+            f.write(f"*Element, type={elem.type}\n")
+            if elem.data is None or len(elem.data) == 0:
+                continue
+            for row in elem.data:
+                f.write(", ".join(str(int(v)) for v in row.tolist()) + "\n")
+
+        # Nsets (Part-level only)
+        for nset in part.nsets:
+            if nset.type == "generate":
+                f.write(f"*Nset, nset={nset.nset}, generate\n")
+                if nset.generate is None:
+                    f.write("\n")
+                else:
+                    s, e, inc = nset.generate
+                    f.write(f"{int(s)}, {int(e)}, {int(inc)}\n")
+            else:
+                f.write(f"*Nset, nset={nset.nset}\n")
+                write_int_list(f, nset.ids)
+
+        # Elsets (Part-level only)
+        for elset in part.elsets:
+            if elset.type == "generate":
+                f.write(f"*Elset, elset={elset.elset}, generate\n")
+                if elset.generate is None:
+                    f.write("\n")
+                else:
+                    s, e, inc = elset.generate
+                    f.write(f"{int(s)}, {int(e)}, {int(inc)}\n")
+            else:
+                f.write(f"*Elset, elset={elset.elset}\n")
+                write_int_list(f, elset.ids)
+
+        # Sections
+        for sec in part.sections:
+            if sec.keyword == "Solid Section":
+                header = "*Solid Section"
+            elif sec.keyword == "Shell Section":
+                header = "*Shell Section"
+            else:
+                header = "*Section"
+
+            args: list[str] = []
+            if sec.elset:
+                args.append(f"elset={sec.elset}")
+            if sec.material:
+                args.append(f"material={sec.material}")
+
+            if args:
+                f.write(header + ", " + ", ".join(args) + "\n")
+            else:
+                f.write(header + "\n")
+
+            if sec.data_lines:
+                for dl in sec.data_lines:
+                    f.write(dl.rstrip() + "\n")
+            else:
+                # Abaqus/CAE 常写一个逗号占位
+                f.write(",\n")
+
+        f.write("*End Part\n")
+    def merge_elsets(self):
+        from InpExchange.InpReader import Elset
+        from copy import deepcopy 
+
+        part = self
+        new_part = deepcopy(part)
+        elset_names = [elset.elset for elset in part.elsets] 
+        used_array = np.zeros(len(elset_names), dtype=bool)  
+
+        new_elsets = []
+        # 第一次迭代找出重复的elset并合并
+        for index, elset_name in enumerate(elset_names):
+            if used_array[index]: # 如果已经使用过则跳过
+                continue
+            for index2 in range(index + 1, len(elset_names)):
+                if elset_name == elset_names[index2]:
+                    # 现在需要新定义一个elset来存储合并后的单元组
+                    temp_elset = Elset(elset=elset_name, type="independent")
+                    # temp_elset.element_ids
+                    temp_element = set(list(part.elsets[index].element_ids) + list(part.elsets[index2].element_ids)) # type: ignore     
+                    temp_elset.element_ids = np.array(list(temp_element), dtype=int)
+                    new_elsets.append(temp_elset)
+                    used_array[index2] = True # 标记为已使用
+                    used_array[index] = True # 标记为已使用
+        # 第二次迭代找出不重复的elset并添加到新的elset列表中
+        for index, elset_name in enumerate(elset_names):    
+            if not used_array[index]: # 如果没有使用过则说明是独立的elset
+                new_elsets.append(part.elsets[index]) # type: ignore
+        if len(new_elsets) == 0:
+            raise ValueError("没有找到elset")
+        new_part.elsets = new_elsets
+        return new_part
+
 
 @dataclass
 class Assembly:
@@ -238,21 +412,10 @@ class Assembly:
 class InpModel:
     def __init__(self):
         self.parts: list[Part] = []
-        # Assembly 结构（通常只有一个，但用 list 兼容多 Assembly）
         self.assemblies: list[Assembly] = []
-        # 兼容：仍保留扁平化的 assembly 级别集合列表
-        self.nsets: list[Nset] = []
-        self.elsets: list[Elset] = []
 
     def add_part(self, part: Part):
         self.parts.append(part)
-
-    def add_nset(self, nset: Nset):
-        self.nsets.append(nset)
-
-    def add_elset(self, elset: Elset):
-        self.elsets.append(elset)
-
     def add_assembly(self, assembly: Assembly) -> None:
         self.assemblies.append(assembly)
 
@@ -323,10 +486,20 @@ class InpModel:
                     buf.append(int(v))
         return buf
 
-    def _read_nset(self, current_part: Part | None, header_line: str, lines: _PushbackLineIter, *, in_assembly: bool) -> None:
+    def _read_nset(
+        self,
+        current_part: Part | None,
+        current_assembly: Assembly | None,
+        header_line: str,
+        lines: _PushbackLineIter,
+        *,
+        in_assembly: bool,
+    ) -> None:
+
         name = self._parse_keyword_arg(header_line, "nset")
         if name is None:
             raise ValueError(f"Nset name not found in line: {header_line}")
+
         instance = self._parse_keyword_arg(header_line, "instance")
         is_generate = self._has_flag(header_line, "generate")
 
@@ -334,23 +507,52 @@ class InpModel:
 
         if is_generate:
             if len(data) < 3:
-                raise ValueError(f"Nset generate expects 3 integers (start,end,inc). Got: {data}")
-            nset = Nset(nset=name, type="generate", generate=(data[0], data[1], data[2]), instance=instance)
+                raise ValueError(
+                    f"Nset generate expects 3 integers (start,end,inc). Got: {data}"
+                )
+
+            nset = Nset(
+                nset=name,
+                type="generate",
+                generate=(data[0], data[1], data[2]),
+                instance=instance,
+            )
+
         else:
-            nset = Nset(nset=name, type="independent", node_ids=np.array(data, dtype=int), instance=instance)
+            nset = Nset(
+                nset=name,
+                type="independent",
+                node_ids=np.array(data, dtype=int),
+                instance=instance,
+            )
 
         if in_assembly:
-            # 兼容：仍写入扁平列表
-            self.add_nset(nset)
+            if current_assembly is None:
+                raise ValueError("Assembly Nset found but current_assembly is None")
+
+            current_assembly.add_nset(nset)
             return
+
         if current_part is None:
             raise ValueError("Encountered *Nset before *Part")
+
         current_part.add_nsets(nset)
 
-    def _read_elset(self, current_part: Part | None, header_line: str, lines: _PushbackLineIter, *, in_assembly: bool) -> None:
+
+    def _read_elset(
+        self,
+        current_part: Part | None,
+        current_assembly: Assembly | None,
+        header_line: str,
+        lines: _PushbackLineIter,
+        *,
+        in_assembly: bool,
+    ) -> None:
+
         name = self._parse_keyword_arg(header_line, "elset")
         if name is None:
             raise ValueError(f"Elset name not found in line: {header_line}")
+
         instance = self._parse_keyword_arg(header_line, "instance")
         is_generate = self._has_flag(header_line, "generate")
 
@@ -358,17 +560,35 @@ class InpModel:
 
         if is_generate:
             if len(data) < 3:
-                raise ValueError(f"Elset generate expects 3 integers (start,end,inc). Got: {data}")
-            elset = Elset(elset=name, type="generate", generate=(data[0], data[1], data[2]), instance=instance)
+                raise ValueError(
+                    f"Elset generate expects 3 integers (start,end,inc). Got: {data}"
+                )
+
+            elset = Elset(
+                elset=name,
+                type="generate",
+                generate=(data[0], data[1], data[2]),
+                instance=instance,
+            )
+
         else:
-            elset = Elset(elset=name, type="independent", element_ids=np.array(data, dtype=int), instance=instance)
+            elset = Elset(
+                elset=name,
+                type="independent",
+                element_ids=np.array(data, dtype=int),
+                instance=instance,
+            )
 
         if in_assembly:
-            # 兼容：仍写入扁平列表
-            self.add_elset(elset)
+            if current_assembly is None:
+                raise ValueError("Assembly Elset found but current_assembly is None")
+
+            current_assembly.add_elset(elset)
             return
+
         if current_part is None:
             raise ValueError("Encountered *Elset before *Part")
+
         current_part.add_elsets(elset)
 
     def _read_section(self, current_part: Part | None, header_line: str, lines: _PushbackLineIter) -> None:
@@ -538,6 +758,9 @@ class InpModel:
                 # Node
                 # ==================================================
                 if lower_line.startswith("*node"):
+                    if current_part is None:
+                        current_part = Part(name="Part-1")
+                        self.parts.append(current_part)
                     self._read_nodes(current_part, lines)
                     continue
 
@@ -552,19 +775,26 @@ class InpModel:
                 # Nset
                 # ==================================================
                 if lower_line.startswith("*nset"):
-                    self._read_nset(current_part, line, lines, in_assembly=in_assembly)
-                    # 同步写入 assembly 对象
-                    if in_assembly and current_assembly is not None:
-                        current_assembly.add_nset(self.nsets[-1])
+                    self._read_nset(
+                        current_part,
+                        current_assembly,
+                        line,
+                        lines,
+                        in_assembly=in_assembly,
+                    )
                     continue
-
+                
                 # ==================================================
                 # Elset
                 # ==================================================
                 if lower_line.startswith("*elset"):
-                    self._read_elset(current_part, line, lines, in_assembly=in_assembly)
-                    if in_assembly and current_assembly is not None:
-                        current_assembly.add_elset(self.elsets[-1])
+                    self._read_elset(
+                        current_part,
+                        current_assembly,
+                        line,
+                        lines,
+                        in_assembly=in_assembly,
+                    )
                     continue
 
                 # ==================================================
@@ -605,109 +835,8 @@ class InpModel:
 
     def __repr__(self):
         return (
-            f"InpModel(n_parts={len(self.parts)})"
+            f"InpModel(n_parts={len(self.parts)}, n_assemblies={len(self.assemblies)})"
         )
-
-
-    # ==========================================================
-    # Write INP (Parts only)
-    # ==========================================================
-    @staticmethod
-    def _fmt_float(x: float) -> str:
-        # Abaqus inp 对浮点格式不敏感；用通用格式减少无意义的小数位。
-        try:
-            return f"{float(x):.15g}"
-        except Exception:
-            return str(x)
-
-    @staticmethod
-    def _write_int_list(f, values: np.ndarray | list[int], *, per_line: int = 16, indent: str = "") -> None:
-        arr = values if isinstance(values, list) else values.tolist()
-        if not arr:
-            f.write(f"{indent}\n")
-            return
-        for i in range(0, len(arr), per_line):
-            chunk = arr[i:i + per_line]
-            f.write(indent + ", ".join(str(int(v)) for v in chunk) + "\n")
-
-    def _write_part(self, f, part: Part) -> None:
-        f.write(f"*Part, name={part.name}\n")
-
-        # Nodes
-        if part.nodes is not None and len(part.nodes) > 0:
-            f.write("*Node\n")
-            for row in part.nodes:
-                node_id = int(row[0])
-                coords = row[1:]
-                f.write(
-                    str(node_id)
-                    + ", "
-                    + ", ".join(self._fmt_float(v) for v in coords)
-                    + "\n"
-                )
-
-        # Elements
-        for elem in part.elements:
-            f.write(f"*Element, type={elem.type}\n")
-            if elem.data is None or len(elem.data) == 0:
-                continue
-            for row in elem.data:
-                f.write(", ".join(str(int(v)) for v in row.tolist()) + "\n")
-
-        # Nsets (Part-level only)
-        for nset in part.nsets:
-            if nset.type == "generate":
-                f.write(f"*Nset, nset={nset.nset}, generate\n")
-                if nset.generate is None:
-                    f.write("\n")
-                else:
-                    s, e, inc = nset.generate
-                    f.write(f"{int(s)}, {int(e)}, {int(inc)}\n")
-            else:
-                f.write(f"*Nset, nset={nset.nset}\n")
-                self._write_int_list(f, nset.ids)
-
-        # Elsets (Part-level only)
-        for elset in part.elsets:
-            if elset.type == "generate":
-                f.write(f"*Elset, elset={elset.elset}, generate\n")
-                if elset.generate is None:
-                    f.write("\n")
-                else:
-                    s, e, inc = elset.generate
-                    f.write(f"{int(s)}, {int(e)}, {int(inc)}\n")
-            else:
-                f.write(f"*Elset, elset={elset.elset}\n")
-                self._write_int_list(f, elset.ids)
-
-        # Sections
-        for sec in part.sections:
-            if sec.keyword == "Solid Section":
-                header = "*Solid Section"
-            elif sec.keyword == "Shell Section":
-                header = "*Shell Section"
-            else:
-                header = "*Section"
-
-            args: list[str] = []
-            if sec.elset:
-                args.append(f"elset={sec.elset}")
-            if sec.material:
-                args.append(f"material={sec.material}")
-
-            if args:
-                f.write(header + ", " + ", ".join(args) + "\n")
-            else:
-                f.write(header + "\n")
-
-            if sec.data_lines:
-                for dl in sec.data_lines:
-                    f.write(dl.rstrip() + "\n")
-            else:
-                # Abaqus/CAE 常写一个逗号占位
-                f.write(",\n")
-
-        f.write("*End Part\n")
 
     def to_inp_text(self) -> str:
         """导出 inp 文本（当前仅写出 *Part 块）。"""
@@ -718,7 +847,7 @@ class InpModel:
         buf.write("** PARTS\n")
         buf.write("**\n")
         for part in self.parts:
-            self._write_part(buf, part)
+            part._write_part(buf)
         return buf.getvalue()
 
     def write_inp(self, file_path: str | Path) -> None:
@@ -729,12 +858,11 @@ class InpModel:
 
 if __name__ == "__main__":
     model = InpModel.from_file(
-        # "strike_slip.inp"
-        "Job-1.inp"
+        "./tests/Job-1.inp"
     )
     part = model.parts[0]
     elem = part.elements[0]
     part.nsets
 
-    # parts-only 写回示例
-    model.write_inp("Job-1_parts_only.inp")
+    # # parts-only 写回示例
+    model.write_inp("Job-1_parts_only.inp") 

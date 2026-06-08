@@ -16,3 +16,5 @@
 !*.bat
 # 不忽略子目录
 !*/
+/build
+/InpExchange.egg-info

@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     pass
 
 from copy import deepcopy
-from InpExchange.InpReader import InpModel
+from InpExchange.InpReader import InpModel, Nsets, Elsets
 
 class GmshToAbaqus(InpModel):
     def app(self, output_file:str="output_mesh.inp"):
@@ -51,9 +51,9 @@ class GmshToAbaqus(InpModel):
             print(f"Processing elset: {elset.elset}")
             temp_nset = elset.transform_to_nset(part)
             nsets.append(temp_nset)
+        nsets = Nsets(nsets)
         output_part.nsets = nsets 
-
-        output_part.elsets = []
+        output_part.elsets = Elsets([])
         output_abaqus_model.write_inp(output_file)
 
 

@@ -1,7 +1,19 @@
 #!/usr/bin/env python3
+# %%
 """
-命令行入口脚本
+File Name: gmsh_to_abaqus_inp.py
+Created on: 2026/06/08
+Author: Chen mingkai
+github: chmtk@outlook.com
+describe: gmsh生成的inp文件转换为abaqus能识别的inp文件
+cites: 
 """
+
+from __future__ import annotations
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    pass
+
 import argparse
 import sys
 import os

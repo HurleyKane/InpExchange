@@ -223,7 +223,7 @@ class Elements:
     def __repr__(self) -> str:
         return f"Elements(n_blocks={len(self.elements)})"
 
-    def __getitem__(self, key):
+    def __getitem__(self, key)->Element:
         return self.elements[key]   
 
 @dataclass

@@ -8,6 +8,9 @@ if part.nodes is None:
     raise ValueError("Part has no nodes")
 node_ids = part.nodes.ids
 
+if node_ids is None:
+    raise ValueError("Part has no nodes")
+
 all_node = set(node_ids)
 element_node = set(list(part.elements[0].node_ids.ravel()))
 

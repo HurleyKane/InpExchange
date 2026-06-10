@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 
 from InpExchange.frame.BaseObject import (
     Element, Nset, Elset, Section, Instance,
-    Elements, Nsets, Elsets, Sections, Nodes
+    Elements, Nsets, Elsets, Sections, Nodes, Instances
 )
 
 
@@ -241,18 +241,19 @@ class Part:
         return output_part
 
 
+
 @dataclass
 class Assembly:
     name: str
-    instances: list[Instance] = field(default_factory=list)
-    nsets: list[Nset] = field(default_factory=list)
-    elsets: list[Elset] = field(default_factory=list)
+    instances: Instances = field(default_factory=Instances)
+    nsets: Nsets = field(default_factory=Nsets)
+    elsets: Elsets = field(default_factory=Elsets)
 
     def add_instance(self, inst: Instance) -> None:
-        self.instances.append(inst)
+        self.instances.add(inst)
 
     def add_nset(self, nset: Nset) -> None:
-        self.nsets.append(nset)
+        self.nsets.add(nset)
 
     def add_elset(self, elset: Elset) -> None:
-        self.elsets.append(elset)
+        self.elsets.add(elset)

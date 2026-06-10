@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# %%
 """
 File Name: gmsh_to_abaqus_inp.py
 Created on: 2026/06/08

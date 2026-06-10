@@ -290,3 +290,37 @@ class Sections:
     
     def __getitem__(self, key):
         return self.data[key]
+
+# ==========================================================
+# Instance (assembly组件)
+# ==========================================================
+@dataclass 
+class Instances: 
+    data: list[Instance] = field(default_factory=list)
+
+    def __len__(self):
+        return len(self.data)
+
+    def add(self, instance):
+        self.data.append(instance)
+
+    def __iter__(self):
+        return iter(self.data)  
+    
+    def __repr__(self) -> str:
+        return f"Instances(n_blocks={len(self.data)})" 
+    
+    def __getitem__(self, key):
+        return self.data[key]
+    
+
+# =========================================================
+# Equation (constraint组件)
+# =========================================================
+@dataclass 
+class Equation:
+    pass 
+
+@dataclass 
+class Equations:
+    data: list[Equation] = field(default_factory=list)

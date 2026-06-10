@@ -7,7 +7,7 @@ github: chmtk@outlook.com
 describe: 目前的分裂节点法，实现是通过法向量旋转到z轴正方向，判断复制节点在旋转后z轴的正负方向来分裂节点的。
         正方向为: 上盘，或者垂直断层的话，指向y轴、x轴正方向的为正方向
         这种设计方式适用于分裂节点区域变化幅度并不剧烈的情况(1/4圆弧)
-
+        下盘Nset用（BOT结尾）
         注意： 如果是完全垂直的断层下方，出现左右变倾角的情况，这种方式不能判断节点在断层的哪一侧需要优化代码逻辑
 
 cites: 
@@ -169,7 +169,7 @@ class SplitNodesMethod(InpModel):
             sur_ele_nodes_num: 2维单元的节点数量，例如4节点面单元为4，3节点面单元为3
         """
         abaqus_model = self
-        new_nset_name = "{}_copy".format(nset_name)
+        new_nset_name = "{}_BOT".format(nset_name) 
         output_abaqus_model = deepcopy(abaqus_model)
         main_part = abaqus_model.parts[0]   
 
@@ -211,6 +211,10 @@ class SplitNodesMethod(InpModel):
         output_abaqus_model.parts[0].elements[0].data[:, 1:] = copy_element_data
         output_abaqus_model.write_inp(output_file)
         return output_abaqus_model
+
+        # -------------------------------------------------------
+        # 3. 创建虚拟节点和构建关联
+        # -------------------------------------------------------
 
 if __name__ == "__main__":
     import os

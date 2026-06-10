@@ -60,6 +60,18 @@ class Nodes:
         max_node_id = max(self.ids) if self.ids is not None else 0
         return max_node_id
 
+    def to_inp_str(self) -> str:
+        """输出Nodes的inp格式字符串"""
+        buf = []
+        buf.append("*Node")
+        if self.data is not None and len(self.data) > 0:
+            for row in self.data:
+                node_id = int(row[0])
+                coords = row[1:]
+                coords_str = ", ".join(f"{float(v):.15g}" for v in coords)
+                buf.append(f"{node_id}, {coords_str}")
+        return "\n".join(buf) + "\n"
+
 
 # ==========================================================
 # Element
@@ -92,6 +104,15 @@ class Element:
     def node_ids(self):
         return self.data[:, 1:].astype(int)
 
+    def to_inp_str(self) -> str:
+        """输出Element的inp格式字符串"""
+        buf = []
+        buf.append(f"*Element, type={self.type}")
+        if self.data is not None and len(self.data) > 0:
+            for row in self.data:
+                buf.append(", ".join(str(int(v)) for v in row.tolist()))
+        return "\n".join(buf) + "\n"
+
 
 # ==========================================================
 # Nset
@@ -120,6 +141,27 @@ class Nset:
             return np.arange(start, end + 1, inc, dtype=int)
         return np.array([], dtype=int) if self.node_ids is None else self.node_ids
 
+    def to_inp_str(self) -> str:
+        """输出Nset的inp格式字符串"""
+        buf = []
+        parts = [f"nset={self.nset}"]
+        if self.instance:
+            parts.append(f"instance={self.instance}")
+        if self.type == "generate":
+            parts.append("generate")
+        buf.append(f"*Nset, {', '.join(parts)}")
+        
+        if self.type == "generate":
+            if self.generate is not None:
+                buf.append(f"{int(self.generate[0])}, {int(self.generate[1])}, {int(self.generate[2])}")
+        else:
+            if self.node_ids is not None and len(self.node_ids) > 0:
+                arr = self.node_ids.tolist()
+                for i in range(0, len(arr), 16):
+                    chunk = arr[i:i + 16]
+                    buf.append(", ".join(str(int(v)) for v in chunk))
+        return "\n".join(buf) + "\n"
+
 
 # ==========================================================
 # Elset
@@ -131,11 +173,12 @@ class Elset:
     element_ids: np.ndarray | None = None
     generate: tuple[int, int, int] | None = None
     instance: str | None = None
+    internal: bool = False
 
     def __repr__(self):
         return (
             f"Elset(elset='{self.elset}', "
-            f"type='{self.type}')"
+            f"type='{self.type}', internal={self.internal})"
         )
 
     @property
@@ -147,6 +190,29 @@ class Elset:
             start, end, inc = self.generate
             return np.arange(start, end + 1, inc, dtype=int)
         return np.array([], dtype=int) if self.element_ids is None else self.element_ids
+
+    def to_inp_str(self) -> str:
+        """输出Elset的inp格式字符串"""
+        buf = []
+        parts = [f"elset={self.elset}"]
+        if self.instance:
+            parts.append(f"instance={self.instance}")
+        if self.type == "generate":
+            parts.append("generate")
+        if self.internal:
+            parts.append("internal")
+        buf.append(f"*Elset, {', '.join(parts)}")
+        
+        if self.type == "generate":
+            if self.generate is not None:
+                buf.append(f"{int(self.generate[0])}, {int(self.generate[1])}, {int(self.generate[2])}")
+        else:
+            if self.element_ids is not None and len(self.element_ids) > 0:
+                arr = self.element_ids.tolist()
+                for i in range(0, len(arr), 16):
+                    chunk = arr[i:i + 16]
+                    buf.append(", ".join(str(int(v)) for v in chunk))
+        return "\n".join(buf) + "\n"
 
     def transform_to_nset(self, part: Part):
         """将elset转换为nset
@@ -193,6 +259,34 @@ class Section:
             f"n_lines={len(self.data_lines)})"
         )
 
+    def to_inp_str(self) -> str:
+        """输出Section的inp格式字符串"""
+        buf = []
+        if self.keyword == "Solid Section":
+            header = "*Solid Section"
+        elif self.keyword == "Shell Section":
+            header = "*Shell Section"
+        else:
+            header = "*Section"
+        
+        args = []
+        if self.elset:
+            args.append(f"elset={self.elset}")
+        if self.material:
+            args.append(f"material={self.material}")
+        
+        if args:
+            buf.append(header + ", " + ", ".join(args))
+        else:
+            buf.append(header)
+        
+        if self.data_lines:
+            for dl in self.data_lines:
+                buf.append(dl.rstrip())
+        else:
+            buf.append(",")
+        return "\n".join(buf) + "\n"
+
 
 # ==========================================================
 # Instance
@@ -206,6 +300,16 @@ class Instance:
         return (
             f"Instance(name={self.name!r}, part={self.part!r})"
         )
+
+    def to_inp_str(self) -> str:
+        """输出Instance的inp格式字符串"""
+        buf = []
+        parts = [f"name={self.name}"]
+        if self.part:
+            parts.append(f"part={self.part}")
+        buf.append(f"*Instance, {', '.join(parts)}")
+        buf.append("*End Instance")
+        return "\n".join(buf) + "\n"
 
 @dataclass
 class Elements:
@@ -314,13 +418,91 @@ class Instances:
         return self.data[key]
     
 
+# ==========================================================
+# Surface
+# ==========================================================
+@dataclass
+class Surface:
+    """Surface定义（如 *Surface, type=ELEMENT）"""
+    name: str
+    type: Literal["ELEMENT", "NODE"] = "ELEMENT"
+    elset: str | None = None
+    side: str | None = None
+
+    def __repr__(self):
+        return (
+            f"Surface(name='{self.name}', type='{self.type}', "
+            f"elset={self.elset!r}, side={self.side!r})"
+        )
+
+    def to_inp_str(self) -> str:
+        """输出Surface的inp格式字符串"""
+        buf = []
+        parts = [f"type={self.type}", f"name={self.name}"]
+        buf.append(f"*Surface, {', '.join(parts)}")
+        if self.elset:
+            if self.side:
+                buf.append(f"{self.elset}, {self.side}")
+            else:
+                buf.append(self.elset)
+        return "\n".join(buf) + "\n"
+
+
+@dataclass
+class Surfaces:
+    data: list[Surface] = field(default_factory=list)
+
+    def __len__(self):
+        return len(self.data)
+
+    def add(self, surface):
+        self.data.append(surface)
+
+    def __iter__(self):
+        return iter(self.data)
+
+    def __repr__(self) -> str:
+        return f"Surfaces(n_blocks={len(self.data)})"
+
+    def __getitem__(self, key):
+        return self.data[key]
+
+
 # =========================================================
 # Equation (constraint组件)
 # =========================================================
 @dataclass 
 class Equation:
-    pass 
+    """Equation约束定义"""
+    terms: list[tuple[str, int, float]] = field(default_factory=list)
+
+    def __repr__(self):
+        return f"Equation(n_terms={len(self.terms)})"
+
+    def to_inp_str(self) -> str:
+        """输出Equation的inp格式字符串"""
+        buf = []
+        buf.append("*Equation")
+        buf.append(str(len(self.terms)))
+        for set_name, dof, coefficient in self.terms:
+            buf.append(f"{set_name}, {int(dof)}, {coefficient}")
+        return "\n".join(buf) + "\n"
 
 @dataclass 
 class Equations:
     data: list[Equation] = field(default_factory=list)
+
+    def __len__(self):
+        return len(self.data)
+
+    def add(self, equation):
+        self.data.append(equation)
+
+    def __iter__(self):
+        return iter(self.data)
+
+    def __repr__(self) -> str:
+        return f"Equations(n_blocks={len(self.data)})"
+
+    def __getitem__(self, key):
+        return self.data[key]

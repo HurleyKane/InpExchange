@@ -23,7 +23,7 @@ import numpy as np
 import io
 
 from InpExchange.frame.BaseObject import (
-    Element, Nset, Elset, Section, Instance, Nodes
+    Element, Nset, Elset, Section, Instance, Nodes, Surface, Equation
 )
 from InpExchange.frame.ModuleObject import Part, Assembly
 
@@ -199,6 +199,7 @@ class InpModel:
 
         instance = self._parse_keyword_arg(header_line, "instance")
         is_generate = self._has_flag(header_line, "generate")
+        is_internal = self._has_flag(header_line, "internal")
 
         data = self._read_int_block(lines)
 
@@ -213,6 +214,7 @@ class InpModel:
                 type="generate",
                 generate=(data[0], data[1], data[2]),
                 instance=instance,
+                internal=is_internal,
             )
 
         else:
@@ -221,6 +223,7 @@ class InpModel:
                 type="independent",
                 element_ids=np.array(data, dtype=int),
                 instance=instance,
+                internal=is_internal,
             )
 
         if in_assembly:
@@ -234,6 +237,74 @@ class InpModel:
             raise ValueError("Encountered *Elset before *Part")
 
         current_part.elsets.add(elset)
+
+    def _read_surface(
+        self,
+        current_assembly: Assembly | None,
+        header_line: str,
+        lines: _PushbackLineIter,
+    ) -> None:
+        """读取 *Surface 块。"""
+        if current_assembly is None:
+            raise ValueError("Encountered *Surface outside Assembly")
+
+        name = self._parse_keyword_arg(header_line, "name")
+        surf_type = self._parse_keyword_arg(header_line, "type") or "ELEMENT"
+        if name is None:
+            raise ValueError(f"Surface name not found in line: {header_line}")
+
+
+        data_lines: list[str] = []
+        for raw2 in lines:
+            row = raw2.strip()
+            if not row or row.startswith("**"):
+                continue
+            if row.startswith("*"):
+                lines.push(raw2)
+                break
+            data_lines.append(row)
+
+        for dl in data_lines:
+            parts = [p.strip() for p in dl.split(",") if p.strip()]
+            if len(parts) >= 1:
+                elset_name = parts[0]
+                side = parts[1] if len(parts) > 1 else None
+                surface = Surface(
+                    name=name,
+                    type=surf_type, # type: ignore
+                    elset=elset_name,
+                    side=side,
+                )
+                current_assembly.add_surface(surface)
+
+    def _read_equation(
+        self,
+        current_assembly: Assembly | None,
+        lines: _PushbackLineIter,
+    ) -> None:
+        """读取 *Equation 块。"""
+        if current_assembly is None:
+            raise ValueError("Encountered *Equation outside Assembly")
+
+        terms: list[tuple[str, int, float]] = []
+
+        for raw2 in lines:
+            row = raw2.strip()
+            if not row or row.startswith("**"):
+                continue
+            if row.startswith("*"):
+                lines.push(raw2)
+                break
+
+            parts = [p.strip() for p in row.split(",") if p.strip()]
+            if len(parts) >= 3:
+                set_name = parts[0]
+                dof = int(parts[1])
+                coefficient = float(parts[2])
+                terms.append((set_name, dof, coefficient))
+
+        equation = Equation(terms=terms)
+        current_assembly.add_equation(equation)
 
     def _read_section(self, current_part: Part | None, header_line: str, lines: _PushbackLineIter) -> None:
         """读取 *Solid Section / *Shell Section 等 section 块。"""
@@ -448,10 +519,24 @@ class InpModel:
                 if lower_line.startswith("*solid section") or lower_line.startswith("*shell section"):
                     self._read_section(current_part, line, lines)
                     continue
+
+                # ==================================================
+                # Surface (inside Assembly)
+                # ==================================================
+                if in_assembly and lower_line.startswith("*surface"):
+                    self._read_surface(current_assembly, line, lines)
+                    continue
+
+                # ==================================================
+                # Equation (inside Assembly)
+                # ==================================================
+                if in_assembly and lower_line.startswith("*equation"):
+                    self._read_equation(current_assembly, lines)
+                    continue
                 
 
                 # 其他关键字暂不处理：直接跳过
-                # 例如：*Assembly, *Nset, *Elset, *Material 等
+                # 例如：*Material 等
                 continue
 
     @staticmethod
@@ -484,19 +569,30 @@ class InpModel:
         )
 
     def to_inp_text(self) -> str:
-        """导出 inp 文本（当前仅写出 *Part 块）。"""
+        """导出 inp 文本（包含 Parts 和 Assembly）。"""
         buf = io.StringIO()
         buf.write("*Heading\n")
-        buf.write("** Generated by InpExchange (parts only) for abaqus 2025\n")
+        buf.write("** Generated by InpExchange for abaqus 2025\n")
         buf.write("**\n")
+        
+        # Parts
         buf.write("** PARTS\n")
         buf.write("**\n")
         for part in self.parts:
-            part._write_part(buf)
+            buf.write(part.to_inp_str())
+        
+        # Assembly
+        if self.assemblies:
+            buf.write("**\n")
+            buf.write("** ASSEMBLY\n")
+            buf.write("**\n")
+            for assembly in self.assemblies:
+                buf.write(assembly.to_inp_str())
+        
         return buf.getvalue()
 
     def write_inp(self, file_path: str | Path) -> None:
-        """写入 inp 文件（当前仅写出 *Part 块）。"""
+        """写入 inp 文件（包含 Parts 和 Assembly）。"""
         file_path = Path(file_path)
         file_path.write_text(self.to_inp_text(), encoding="utf-8")
 

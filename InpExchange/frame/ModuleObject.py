@@ -18,8 +18,8 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 
 from InpExchange.frame.BaseObject import (
-    Element, Nset, Elset, Section, Instance,
-    Elements, Nsets, Elsets, Sections, Nodes, Instances
+    Element, Nset, Elset, Section, Instance, Surface, Equation,
+    Elements, Nsets, Elsets, Sections, Nodes, Instances, Surfaces, Equations
 )
 
 
@@ -83,87 +83,33 @@ class Part:
                 pass
         raise ValueError("element_id not found")    
 
-    def _write_part(self, f) -> None:
-        part = self
-        f.write(f"*Part, name={part.name}\n")
+    def to_inp_str(self) -> str:
+        """输出Part的inp格式字符串"""
+        buf = []
+        buf.append(f"*Part, name={self.name}")
 
         # Nodes
-        if part.nodes is not None and len(part.nodes) > 0:
-            f.write("*Node\n")
-            if part.nodes.data is None:
-                raise ValueError("Part has no nodes")
-            for row in part.nodes.data:
-                node_id = int(row[0])
-                coords = row[1:]
-                f.write(
-                    str(node_id)
-                    + ", "
-                    + ", ".join(fmt_float(v) for v in coords)
-                    + "\n"
-                )
+        if self.nodes is not None and len(self.nodes) > 0:
+            buf.append(self.nodes.to_inp_str().rstrip())
 
         # Elements
-        for elem in part.elements:
-            f.write(f"*Element, type={elem.type}\n")
-            if elem.data is None or len(elem.data) == 0:
-                continue
-            for row in elem.data:
-                f.write(", ".join(str(int(v)) for v in row.tolist()) + "\n")
+        for elem in self.elements:
+            buf.append(elem.to_inp_str().rstrip())
 
         # Nsets (Part-level only)
-        for nset in part.nsets:
-            if nset.type == "generate":
-                f.write(f"*Nset, nset={nset.nset}, generate\n")
-                if nset.generate is None:
-                    f.write("\n")
-                else:
-                    s, e, inc = nset.generate
-                    f.write(f"{int(s)}, {int(e)}, {int(inc)}\n")
-            else:
-                f.write(f"*Nset, nset={nset.nset}\n")
-                write_int_list(f, nset.ids)
+        for nset in self.nsets:
+            buf.append(nset.to_inp_str().rstrip())
 
         # Elsets (Part-level only)
-        for elset in part.elsets:
-            if elset.type == "generate":
-                f.write(f"*Elset, elset={elset.elset}, generate\n")
-                if elset.generate is None:
-                    f.write("\n")
-                else:
-                    s, e, inc = elset.generate
-                    f.write(f"{int(s)}, {int(e)}, {int(inc)}\n")
-            else:
-                f.write(f"*Elset, elset={elset.elset}\n")
-                write_int_list(f, elset.ids)
+        for elset in self.elsets:
+            buf.append(elset.to_inp_str().rstrip())
 
         # Sections
-        for sec in part.sections:
-            if sec.keyword == "Solid Section":
-                header = "*Solid Section"
-            elif sec.keyword == "Shell Section":
-                header = "*Shell Section"
-            else:
-                header = "*Section"
+        for sec in self.sections:
+            buf.append(sec.to_inp_str().rstrip())
 
-            args: list[str] = []
-            if sec.elset:
-                args.append(f"elset={sec.elset}")
-            if sec.material:
-                args.append(f"material={sec.material}")
-
-            if args:
-                f.write(header + ", " + ", ".join(args) + "\n")
-            else:
-                f.write(header + "\n")
-
-            if sec.data_lines:
-                for dl in sec.data_lines:
-                    f.write(dl.rstrip() + "\n")
-            else:
-                # Abaqus/CAE 常写一个逗号占位
-                f.write(",\n")
-
-        f.write("*End Part\n")
+        buf.append("*End Part")
+        return "\n".join(buf) + "\n"
     def merge_elsets(self):
         from copy import deepcopy 
 
@@ -248,6 +194,8 @@ class Assembly:
     instances: Instances = field(default_factory=Instances)
     nsets: Nsets = field(default_factory=Nsets)
     elsets: Elsets = field(default_factory=Elsets)
+    surfaces: Surfaces = field(default_factory=Surfaces)
+    equations: Equations = field(default_factory=Equations)
 
     def add_instance(self, inst: Instance) -> None:
         self.instances.add(inst)
@@ -257,3 +205,37 @@ class Assembly:
 
     def add_elset(self, elset: Elset) -> None:
         self.elsets.add(elset)
+
+    def add_surface(self, surface: Surface) -> None:
+        self.surfaces.add(surface)
+
+    def add_equation(self, equation: Equation) -> None:
+        self.equations.add(equation)
+
+    def to_inp_str(self) -> str:
+        """输出Assembly的inp格式字符串"""
+        buf = []
+        buf.append(f"*Assembly, name={self.name}")
+
+        # Instances
+        for inst in self.instances:
+            buf.append(inst.to_inp_str().rstrip())
+
+        # Nsets (Assembly-level)
+        for nset in self.nsets:
+            buf.append(nset.to_inp_str().rstrip())
+
+        # Elsets (Assembly-level)
+        for elset in self.elsets:
+            buf.append(elset.to_inp_str().rstrip())
+
+        # Surfaces
+        for surface in self.surfaces:
+            buf.append(surface.to_inp_str().rstrip())
+
+        # Equations
+        for equation in self.equations:
+            buf.append(equation.to_inp_str().rstrip())
+
+        buf.append("*End Assembly")
+        return "\n".join(buf) + "\n"

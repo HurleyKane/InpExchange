@@ -15,7 +15,8 @@ if TYPE_CHECKING:
     pass
 
 from copy import deepcopy
-from InpExchange.InpReader import InpModel, Nsets, Elsets
+from InpExchange.InpReader import InpModel
+from InpExchange.frame.ModuleObject import Nsets, Elsets
 
 class GmshToAbaqus(InpModel):
     def app(self, output_file:str="output_mesh.inp"):

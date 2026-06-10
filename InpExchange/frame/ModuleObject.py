@@ -17,7 +17,7 @@ import numpy as np
 from copy import deepcopy
 from dataclasses import dataclass, field
 
-from InpExchange.BaseObject import (
+from InpExchange.frame.BaseObject import (
     Element, Nset, Elset, Section, Instance,
     Elements, Nsets, Elsets, Sections, Nodes
 )
@@ -199,8 +199,6 @@ class Part:
 
     def extract_nodes_from_nset(self, nset_name:str):
         """提取nset中的节点"""
-        from InpExchange.BaseObject import Nodes, Nset
-    
         main_part = self
         nset = main_part.nsets[nset_name]
         nset.node_ids
@@ -237,8 +235,6 @@ class Part:
         # -------------------------------------------------------
         # 2. 创建新的节点集
         # -------------------------------------------------------
-        from InpExchange.BaseObject import Nodes, Nset
-
         # copy_nodes_set
         new_nset = Nset(nset=new_nset_name, type="independent", node_ids=copied_nodes.ids)
         output_part.nsets.add(new_nset)

@@ -86,12 +86,7 @@ def face_normal(p1, p2, p3):
         raise ValueError("三点共线，无法确定法向量")
     
     n = n / norm
-    n1 = n
-    n2 = -n
-    
-    # 按 x -> y -> z 排序
-    normals = sorted([n1, n2], key=lambda x: (x[0], x[1], x[2]))
-    return normals[0], normals[1]
+    return n
 
 import numpy as np
 
@@ -110,7 +105,10 @@ def point_plane_side(point, plane_point, normal, tol=1e-10):
     plane_point = np.asarray(plane_point, dtype=float)
     normal = np.asarray(normal, dtype=float)
 
-    d = np.dot(point - plane_point, normal)
+    try:
+        d = np.dot(point - plane_point, normal)
+    except Exception as e:
+        pass
 
     if d > tol:
         return 1

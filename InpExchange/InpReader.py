@@ -22,11 +22,11 @@ from pathlib import Path
 import numpy as np
 import io
 
-from InpExchange.BaseObject import (
+from InpExchange.frame.BaseObject import (
     Element, Nset, Elset, Section, Instance,
     Elements, Nsets, Elsets, Sections, Nodes
 )
-from InpExchange.ModuleObject import Part, Assembly
+from InpExchange.frame.ModuleObject import Part, Assembly
 
 class _PushbackLineIter:
     """可回退的行迭代器，用于流式解析关键字块。

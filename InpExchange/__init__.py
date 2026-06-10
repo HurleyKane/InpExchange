@@ -11,11 +11,3 @@ print(m.parts[0].nodes.shape)
 m.write_inp("Job-1_parts_only.inp")
 ```
 """
-
-from .GmshToAbaqus import (
-    GmshToAbaqus,
-)
-
-__all__ = [
-    "GmshToAbaqus"
-]

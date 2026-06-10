@@ -11,7 +11,7 @@ cites:
 from __future__ import annotations
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from InpExchange.InpReader import Part
+    from InpExchange.frame.ModuleObject import Part
 
 from dataclasses import dataclass, field
 from typing import Literal

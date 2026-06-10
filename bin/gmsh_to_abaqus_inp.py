@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 import argparse
 import sys
 import os
-from InpExchange.GmshToAbaqus import GmshToAbaqus 
+from InpExchange.Applications.GmshToAbaqus import GmshToAbaqus 
 
 def main():
     parser = argparse.ArgumentParser(

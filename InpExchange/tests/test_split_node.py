@@ -10,49 +10,19 @@ describe: 目前的分裂节点法，实现是通过法向量旋转到z轴正方
         这种设计方式适用于分裂节点区域变化幅度并不剧烈的情况(1/4圆弧)
 cites: 
 """
-
 from __future__ import annotations
 from typing import TYPE_CHECKING
-
-from InpExchange.ModuleObject import Part
 if TYPE_CHECKING:
     pass
 
 import numpy as np
 from copy import deepcopy
 
-from InpExchange.InpReader import InpModel  
-abaqus_model = InpModel.from_file("output_mesh.inp") 
-output_abaqus_model = deepcopy(abaqus_model)
-
-main_part = abaqus_model.parts[0]   
-main_part.nsets.data
-
-# -------------------------------------------------------
-# 复制节点
-# -------------------------------------------------------
-nset_name = "fault_surface_1"
-copied_nodes = main_part.copy_nodes_from_nset(nset_name)
-if main_part.nodes is None:
-    raise ValueError("Part has no nodes")
-new_nodes = main_part.nodes +  copied_nodes
-output_abaqus_model.parts[0].nodes = new_nodes
-
-# -------------------------------------------------------
-# 2. 创建新的节点集
-# -------------------------------------------------------
-from InpExchange.BaseObject import Nodes, Nset
-
-new_nset_name = "{}_copy".format(nset_name)
-new_nset = Nset(nset=new_nset_name, type="independent", node_ids=copied_nodes.ids)
-output_abaqus_model.parts[0].nsets.add(new_nset)
-
-# -------------------------------------------------------
-# 3. 根据分裂的节点，修改元素
-# -------------------------------------------------------
-# def 从多个elements list中，找出包含相同单元节点最多的元素进行返回
+from InpExchange.InpReader import InpModel
+from InpExchange.ModuleObject import Part, Nset
 from InpExchange.math.geometry import face_normal, angle_to_z_axis, point_plane_side
-def find_max_len_common_nodes(ele, common_nodes_list):
+
+def find_max_len_common_nodes(ele, common_nodes_list, Two_dimension_element_nodes_num):
     """
     找出包含相同单元节点最多的元素进行返回
     """
@@ -68,21 +38,58 @@ def find_max_len_common_nodes(ele, common_nodes_list):
                     max_len_num = len(common_nodes)
                     max_len_accure_index = index
     return max_len_accure_index 
-Two_dimension_element_nodes_num = 3
 
+def determine_positive_direction(element_coords_centorid, nset_element_coords_centorid, nset_element_coords:np.ndarray):
+    """判断法向量的正方向
 
-old_nset = main_part.nsets[nset_name] # fault节点
+    Args:
+        element_coords_centorid (_type_): 体单元中心
+        nset_element_coords_centorid (_type_): 面单元中心
+        nset_element_coords (_type_): 面三点坐标
+
+    Raises:
+        ValueError: _description_
+
+    Returns:
+        _type_: _description_
+    """
+    nset_element_coords = nset_element_coords[0:3, :] # 取前三个节点坐标计算法向量
+    n1, n2 = face_normal(*nset_element_coords)
+
+    for temp_i in range(len(n1)):
+        if np.isclose(n1[temp_i], 0, atol=1e-12):
+            n1[temp_i] = 0
+        if np.isclose(n2[temp_i], 0, atol=1e-12):    
+            n2[temp_i] = 0  
+
+    angle1 = angle_to_z_axis(n1) 
+    angle2 = angle_to_z_axis(n2)
+    if angle1[1] == "CW" and angle2[1] == "CCW": # n1 逆时针
+        positive_direction = n2
+    elif angle1[1] == "CCW" and angle2[1] == "CW": # n1 顺时针
+        positive_direction = n1
+    else:
+        raise ValueError("无法判断法向量的旋转方向")
+
+    mark = point_plane_side(
+        point = element_coords_centorid,
+        plane_point = nset_element_coords_centorid,
+        normal = positive_direction
+    )
+    return mark
 
 def split_nodes_method_by_one_node(
-        main_part: Part, one_node:int,
+        main_part: Part, one_node_id:int,
+        old_nset: Nset, new_nset: Nset,
+        Two_dimension_element_nodes_num:int,
         copy_element_data:np.ndarray, used_element_ids:np.ndarray   
         ):
     if old_nset.node_ids is None:
         raise ValueError("Nset has no node ids")
-    
+
     # 计算该节点所有的单元
     element = main_part.elements[0]
-    index_x, _ = np.where(element.node_ids == one_node)
+    index_x, _ = np.where(element.node_ids == one_node_id)
 
     # 统计每个单元的节点信息
     common_nodes_list = []
@@ -108,40 +115,21 @@ def split_nodes_method_by_one_node(
         ele = element.node_ids[id]
         if len(common_nodes_list[i]) < Two_dimension_element_nodes_num:
             # 找出nset中的最接近的单元
-            index = find_max_len_common_nodes(common_nodes_list[i], common_nodes_list)
+            index = find_max_len_common_nodes(common_nodes_list[i], common_nodes_list, Two_dimension_element_nodes_num)
             nset_element = common_nodes_list[index]
         else:
             nset_element = common_nodes_list[i] 
-        
+
         # 利用找出的单元，计算该单元的法向量正方向 
         element_coords = nodes.coordinates[np.array(ele) - 1]
         nset_element_coords = nodes.coordinates[np.array(nset_element) - 1]
         element_coords_centorid = np.mean(element_coords, axis=0)   
         nset_element_coords_centorid = np.mean(nset_element_coords, axis=0)
-        
+
         # 计算nset element法向量
-        n1, n2 = face_normal(*nset_element_coords)
-
-        for temp_i in range(len(n1)):
-            if np.isclose(n1[temp_i], 0, atol=1e-12):
-                n1[temp_i] = 0
-            if np.isclose(n2[temp_i], 0, atol=1e-12):    
-                n2[temp_i] = 0  
-
-        angle1 = angle_to_z_axis(n1) 
-        angle2 = angle_to_z_axis(n2)
-        if angle1[1] == "CW" and angle2[1] == "CCW": # n1 逆时针
-            positive_direction = n2
-        elif angle1[1] == "CCW" and angle2[1] == "CW": # n1 顺时针
-            positive_direction = n1
-        else:
-            raise ValueError("无法判断法向量的旋转方向")
-
-        mark = point_plane_side(
-            point = element_coords_centorid,
-            plane_point = nset_element_coords_centorid,
-            normal = positive_direction
-        )
+        mark = determine_positive_direction(
+            element_coords_centorid, nset_element_coords_centorid, nset_element_coords
+            )
         if mark == 1: # 单元中心在法向量正方向 
             # 不需要更改节点序号
             used_element_ids[id] = True # 标记为已使用  
@@ -164,23 +152,74 @@ def split_nodes_method_by_one_node(
             copy_element_data[id, arg] = new_nset.node_ids[new_nset_index]
             used_element_ids[id] = True
 
-if old_nset.node_ids is None:
-    raise ValueError("Nset has no node ids")
+class SplitNodeMethod(InpModel):
+    """
+    分裂节点法
+    """
+    def app(
+            self, 
+            nset_name:str, 
+            sur_ele_nodes_num:int,
+            output_file:str="output_split_node.inp"
+    ):
+        """
+        Args:
+            sur_ele_nodes_num: 2维单元的节点数量，例如4节点面单元为4，3节点面单元为3
+        """
+        new_nset_name = "{}_copy".format(nset_name)
 
-# 从一个需要分裂的节点出发，找出包含该节点的单元
-element = main_part.elements[0]
-copy_element_data = deepcopy(element.node_ids)       
-used_element_ids = np.zeros(element.data.shape[0], dtype=bool)
+        abaqus_model = InpModel.from_file("output_mesh.inp") 
 
-one_node = old_nset.node_ids[0]
+        output_abaqus_model = deepcopy(abaqus_model)
+        main_part = abaqus_model.parts[0]   
 
-for one_node in old_nset.node_ids:
-    split_nodes_method_by_one_node(
-        main_part, one_node,
-        copy_element_data, used_element_ids 
-    ) 
+        # 复制节点与创建虚拟节点
+        dummy_nset_name = "{}_dummy".format(nset_name)
+        output_part = main_part.copy_nodes_and_nset_frome_nset(nset_name, new_nset_name)
+        output_part = output_part.copy_nodes_and_nset_frome_nset(new_nset_name, dummy_nset_name)
+        output_abaqus_model.parts[0] = output_part
 
-output_abaqus_model.parts[0].elements[0].data[:, 1:] = copy_element_data
-a = output_abaqus_model.parts[0].elements[0].data[used_element_ids]
+        new_nset = output_part.nsets[new_nset_name]
 
-output_abaqus_model.write_inp("output_split_node.inp")
+        # -------------------------------------------------------
+        # 2. 根据分裂的节点，修改单元.
+        # * 修改的单元需要看看在Elset中是否存在, 如果存在也需要进行修改
+        # -------------------------------------------------------
+        # def 从多个elements list中，找出包含相同单元节点最多的元素进行返回
+        Two_dimension_element_nodes_num = sur_ele_nodes_num
+        old_nset = main_part.nsets[nset_name] # fault节点
+
+
+        if old_nset.node_ids is None:
+            raise ValueError("Nset has no node ids")
+
+        # 从一个需要分裂的节点出发，找出包含该节点的单元
+        element = main_part.elements[0]
+        copy_element_data = deepcopy(element.node_ids)       
+        used_element_ids = np.zeros(element.data.shape[0], dtype=bool)
+
+        one_node = old_nset.node_ids[0]
+
+        for one_node in old_nset.node_ids:
+            split_nodes_method_by_one_node(
+                main_part, one_node,
+                old_nset, new_nset,
+                Two_dimension_element_nodes_num,
+                copy_element_data, used_element_ids 
+            ) 
+
+        output_abaqus_model.parts[0].elements[0].data[:, 1:] = copy_element_data
+        output_abaqus_model.write_inp(output_file)
+        return output_abaqus_model
+
+        # -------------------------------------------------------
+        # 3. 其他单元中，比如材料的node set是否需要调整。
+        # 材料属性属于单元,
+        # 材料单元的修改
+        # -------------------------------------------------------
+
+split_method = SplitNodeMethod.from_file("output_mesh.inp")
+output_abaqus_model = split_method.app(nset_name="fault_surface_1", sur_ele_nodes_num=3)
+
+
+output_abaqus_model.parts[0].nsets.data

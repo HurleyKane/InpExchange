@@ -197,7 +197,8 @@ class Part:
         new_part.elsets = new_elsets
         return new_part
 
-    def copy_nodes_from_nset(self, nset_name:str):
+    def extract_nodes_from_nset(self, nset_name:str):
+        """提取nset中的节点"""
         from InpExchange.BaseObject import Nodes, Nset
     
         main_part = self
@@ -219,6 +220,29 @@ class Part:
     
         return copied_nodes
 
+    def copy_nodes_and_nset_frome_nset(self, nset_name:str, new_nset_name:str):
+        # -------------------------------------------------------
+        # 复制节点
+        # -------------------------------------------------------
+        main_part = self
+        output_part = deepcopy(main_part)
+
+        # 创建复制节点
+        copied_nodes = main_part.extract_nodes_from_nset(nset_name)
+        if main_part.nodes is None:
+            raise ValueError("Part has no nodes")
+        new_nodes = main_part.nodes +  copied_nodes
+        output_part.nodes = new_nodes
+
+        # -------------------------------------------------------
+        # 2. 创建新的节点集
+        # -------------------------------------------------------
+        from InpExchange.BaseObject import Nodes, Nset
+
+        # copy_nodes_set
+        new_nset = Nset(nset=new_nset_name, type="independent", node_ids=copied_nodes.ids)
+        output_part.nsets.add(new_nset)
+        return output_part
 
 
 @dataclass

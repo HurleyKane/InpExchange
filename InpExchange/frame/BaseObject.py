@@ -163,6 +163,22 @@ class Nset:
         return "\n".join(buf) + "\n"
 
 
+    def create_one_node_nsets_from_nset(
+            self, nset_name: str,
+        ) -> Nsets:
+        """ 
+        将一个nset中的多个节点分解成多个nset，每个nset中只有一个节点，nset的命名为原nset_name加上节点id，例如TOP_nset_1, TOP_nset_2, ...
+        """
+        nset = self
+        one_node_nsets = [] 
+        if nset.node_ids is None:
+            raise ValueError("TOP_nset.node_ids is None")
+        for i, node_id in enumerate(nset.node_ids):
+            temp_nset = Nset(nset=f"{nset_name}_{i}", node_ids=np.array([node_id]), type="independent")
+            one_node_nsets.append(temp_nset)
+        one_node_nsets = Nsets(one_node_nsets)
+        return one_node_nsets
+
 # ==========================================================
 # Elset
 # ==========================================================
@@ -340,6 +356,11 @@ class Nsets:
     def add(self, nset):
         self.data.append(nset)
 
+    def __add__(self, other: list[Nset] | Nsets):
+        if isinstance(other, list):
+            other = Nsets(other)
+        return Nsets(self.data + other.data)
+
     def __iter__(self):
         return iter(self.data)
 
@@ -356,6 +377,44 @@ class Nsets:
             raise KeyError(f"Nset not found: {key}")
         else:
             raise TypeError(f"Key must be int or str, not {type(key)}")
+
+    def create_equation_from_nsets(self, dof:Literal["U1", "U2", "U3"], parameter:list[float], part_name:str|None=None):
+        """_summary_
+
+        Args:
+            dof (Literal[&quot;U1&quot;, &quot;U2&quot;, &quot;U3&quot;]): _description_
+            parameter (list[float]): _description_
+            part_name (str): nsets属于的part的名字
+
+        Raises:
+            ValueError: _description_
+            ValueError: _description_
+
+        Returns:
+            _type_: _description_
+        """
+        nsets = self
+        if nsets.data is None:
+            raise ValueError("nsets.node_ids is None")
+
+        if len(nsets) != len(parameter):
+            raise ValueError("nsets和parameter数量不一致，无法构建方程")
+
+        dof_proj = {
+            "U1": 1, 
+            "U2": 2,
+            "U3": 3
+        }
+
+        terms = []
+        for i in range(len(nsets)):
+            if part_name is not None:
+                term = [part_name + f".{nsets[i].nset}", dof_proj[dof], parameter[i]]
+            else:
+                term = [nsets[i].nset, dof_proj[dof], parameter[i]]
+            terms.append(term)
+        equation = Equation(terms=terms)
+        return equation
 
 @dataclass
 class Elsets:
@@ -482,6 +541,7 @@ class Equation:
     def to_inp_str(self) -> str:
         """输出Equation的inp格式字符串"""
         buf = []
+        buf.append(f"** Constraint: constraint_DOF{self.terms[0][1]}_node{self.terms[0][0].split('_')[-1]}")
         buf.append("*Equation")
         buf.append(str(len(self.terms)))
         for set_name, dof, coefficient in self.terms:
@@ -494,6 +554,11 @@ class Equations:
 
     def __len__(self):
         return len(self.data)
+
+    def __add__(self, other: Equations | list[Equation]):
+        if isinstance(other, list):
+            other = Equations(other)
+        return Equations(self.data + other.data)
 
     def add(self, equation):
         self.data.append(equation)

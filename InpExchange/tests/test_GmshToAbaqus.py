@@ -1,14 +1,16 @@
 from InpExchange.Applications.GmshToAbaqus import GmshToAbaqus
 
 gmsh_model = GmshToAbaqus.from_file("gmsh_mesh.inp")
-gmsh_model.app("output_mesh.inp")
+output_abaqus_model = gmsh_model.app("output_mesh.inp")
 
-# # gmsh_model.assemblies
-# from InpExchange.frame.ModuleObject import Assembly
-# from InpExchange.frame.BaseObject import Instance
+part = output_abaqus_model.parts[0]
+if part.nodes is None:
+    raise ValueError("Part has no nodes")
+node_ids = part.nodes.ids
 
-# part = gmsh_model.parts[0]
+all_node = set(node_ids)
+element_node = set(list(part.elements[0].node_ids.ravel()))
 
-# instance = Instance(name=part.name, part=part.name)
-# assembly = Assembly(name="Assembly-1")
-# assembly.instances.add(instance)
+print(len(all_node))
+print(len(element_node))
+print(all_node - element_node)

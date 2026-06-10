@@ -16,8 +16,9 @@ if TYPE_CHECKING:
 
 from copy import deepcopy
 from InpExchange.InpReader import InpModel
-from InpExchange.frame.ModuleObject import Nsets, Elsets
-
+from InpExchange.frame.ModuleObject import Assembly
+from InpExchange.frame.BaseObject import Instance, Nsets, Elsets
+        
 class GmshToAbaqus(InpModel):
     def app(self, output_file:str="output_mesh.inp"):
         "将gmsh生成的inp文件转换为abaqus能识别的inp文件"
@@ -55,7 +56,19 @@ class GmshToAbaqus(InpModel):
         nsets = Nsets(nsets)
         output_part.nsets = nsets 
         output_part.elsets = Elsets([])
+
+        # ==========================================================
+        #  新建assembly
+        # ==========================================================
+        part = output_abaqus_model.parts[0]
+        assembly = Assembly(name="Assembly-1")
+        instance = Instance(name=part.name, part=part.name)
+        assembly.instances.add(instance)
+        output_abaqus_model.assemblies.append(assembly)
+        
         output_abaqus_model.write_inp(output_file)
+        print(f"gmsh mesh转换为abaqus模型完成，输出模型： {output_abaqus_model}")
+        return output_abaqus_model
 
 
 if __name__ == "__main__":

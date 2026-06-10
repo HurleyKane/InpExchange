@@ -174,7 +174,7 @@ class SplitNodesMethod(InpModel):
         main_part = abaqus_model.parts[0]   
 
         # 复制节点与创建虚拟节点
-        dummy_nset_name = "{}_dummy".format(nset_name)
+        dummy_nset_name = "{}_DUMMY".format(nset_name)
         output_part = main_part.copy_nodes_and_nset_frome_nset(nset_name, new_nset_name)
         output_part = output_part.copy_nodes_and_nset_frome_nset(new_nset_name, dummy_nset_name)
         output_abaqus_model.parts[0] = output_part
